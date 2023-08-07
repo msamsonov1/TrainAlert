@@ -1,0 +1,73 @@
+import threading
+import time
+import math
+import random
+import requests
+import json
+
+class TrainAlertApp:
+
+  def __init__(self):
+    self.train_api_url = "https://api.railwayapi.com/v2/live/trains/"
+    self.train_api_key = "YOUR_API_KEY"
+    self.current_location = None
+    self.train_nearby = False
+    self.thread = None
+
+  def start(self):
+    self.thread = threading.Thread(target=self._run)
+    self.thread.daemon = True
+    self.thread.start()
+
+  def _run(self):
+    while True:
+      time.sleep(1)
+      self._update_location()
+      if self.train_nearby:
+        self._send_alert()
+
+  def _update_location(self):
+    """Updates the current location of the user."""
+    location = requests.get("https://api.ipgeolocation.io/v1/geolocate").json()
+    self.current_location = {
+        "latitude": location["latitude"],
+        "longitude": location["longitude"],
+    }
+
+  def _get_nearby_trains(self):
+    """Gets a list of trains that are near the current location."""
+    parameters = {
+        "apikey": self.train_api_key,
+        "lat": self.current_location["latitude"],
+        "lon": self.current_location["longitude"],
+    }
+    response = requests.get(self.train_api_url, params=parameters)
+    if response.status_code == 200:
+      data = json.loads(response.content)
+      return data["trains"]
+    return []
+
+  def _is_train_nearby(self, trains):
+    """Returns True if a train is within 15 seconds of the current location."""
+    for train in trains:
+      if train["status"] == "RUNNING":
+        distance = math.sqrt((train["latitude"] - self.current_location["latitude"])**2 +
+                             (train["longitude"] - self.current_location["longitude"])**2)
+        if distance < 1500:
+          return True
+    return False
+
+  def _send_alert(self):
+    """Sends an alert to the user."""
+    message = "Train approaching! Get off the tracks!"
+    requests.post("https://api.pushover.net/1/messages.json",
+                  data={"user": "YOUR_USER_KEY", "message": message})
+
+  def stop(self):
+    self.thread.join()
+
+if __name__ == "__main__":
+  app = TrainAlertApp()
+  app.start()
+  while True:
+    time.sleep(1)
